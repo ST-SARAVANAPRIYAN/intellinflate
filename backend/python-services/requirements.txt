@@ -1,0 +1,6 @@
+opencv-python
+imutils
+numpy
+easyocr
+flask
+python-dotenv

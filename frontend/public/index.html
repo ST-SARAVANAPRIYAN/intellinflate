@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TireGuard AI - Central Monitoring Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="monitor-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">🛡️</span>
+                <span class="logo-text">TireGuard AI</span>
+            </div>
+            <nav class="side-nav">
+                <a href="#" class="nav-item active">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="icon">🚗</span> Vehicle Log
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="icon">🚨</span> Alerts
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="icon">⚙️</span> Settings
+                </a>
+            </nav>
+            <div class="system-status">
+                <div class="status-indicator">
+                    <span class="dot online"></span>
+                    <span>System Online</span>
+                </div>
+                <div class="status-indicator">
+                    <span class="dot online"></span>
+                    <span>AI Engine Ready</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1>Central Monitoring Dashboard</h1>
+                <div class="top-actions">
+                    <select id="analysis-mode" class="status-badge" style="background: var(--bg-card); color: white; border: 1px solid var(--border); cursor: pointer; padding: 0.375rem 0.75rem;">
+                        <option value="PLATE">Initial Scan (Number Plate)</option>
+                        <option value="FRONT">Front View (Tread & Alignment)</option>
+                        <option value="SIDE">Side View (Sidewall Cracks)</option>
+                    </select>
+                    <div id="connection-status" class="status-badge connected">Connected</div>
+                    <div class="date-time" id="current-time">--:--:--</div>
+                </div>
+            </header>
+
+            <div class="dashboard-grid">
+                <!-- Vehicle Detection Panel -->
+                <section class="panel detection-panel">
+                    <div class="panel-header">
+                        <h2>Vehicle Detection</h2>
+                        <span class="live-tag">LIVE</span>
+                    </div>
+                    <div class="detection-container">
+                        <div class="camera-feed">
+                            <div id="camera-placeholder" class="placeholder">
+                                <span class="icon">📷</span>
+                                <p>Waiting for detection...</p>
+                            </div>
+                            <img id="detected-vehicle-img" class="feed-img" style="display:none;">
+                            <div id="detection-overlay" class="detection-overlay"></div>
+                        </div>
+                        <div class="detection-info">
+                            <div class="info-group">
+                                <label>Detected Plate</label>
+                                <div id="detected-plate" class="plate-display">----</div>
+                            </div>
+                            <div class="info-group">
+                                <label>Confidence Score</label>
+                                <div id="plate-confidence" class="confidence-bar">
+                                    <div class="fill" style="width: 0%"></div>
+                                    <span class="text">0%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- User/Owner Details -->
+                <section class="panel user-panel">
+                    <div class="panel-header">
+                        <h2>Owner Information</h2>
+                    </div>
+                    <div id="user-details" class="user-details-box">
+                        <div class="empty-state">Scan a vehicle to see details</div>
+                        <!-- Will be populated by JS -->
+                    </div>
+                </section>
+
+                <!-- Tire Health Analysis -->
+                <section class="panel health-panel">
+                    <div class="panel-header">
+                        <h2>Tire Health Analysis</h2>
+                        <div class="overall-score" id="overall-health-score">--</div>
+                    </div>
+                    <div class="health-grid">
+                        <div class="health-card" id="card-tread">
+                            <div class="card-icon">📏</div>
+                            <div class="card-label">Tread Wear</div>
+                            <div class="card-status" id="status-tread">--</div>
+                            <div class="card-value" id="val-tread">--</div>
+                        </div>
+                        <div class="health-card" id="card-alignment">
+                            <div class="card-icon">⚖️</div>
+                            <div class="card-label">Misalignment</div>
+                            <div class="card-status" id="status-alignment">--</div>
+                            <div class="card-value" id="val-alignment">--</div>
+                        </div>
+                        <div class="health-card" id="card-cracks">
+                            <div class="card-icon">⚡</div>
+                            <div class="card-label">Sidewall Cracks</div>
+                            <div class="card-status" id="status-cracks">--</div>
+                            <div class="card-value" id="val-cracks">--</div>
+                        </div>
+                        <div class="health-card" id="card-leakage">
+                            <div class="card-icon">💨</div>
+                            <div class="card-label">Air Leakage</div>
+                            <div class="card-status" id="status-leakage">--</div>
+                            <div class="card-value" id="val-leakage">--</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Detailed Health Monitor -->
+                <section class="panel detailed-monitor">
+                    <div class="panel-header">
+                        <h2>Health Progression & Logs</h2>
+                    </div>
+                    <div class="logs-container" id="health-logs">
+                        <div class="log-entry system">System initialized. Waiting for vehicle...</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden upload for testing -->
+    <input type="file" id="test-upload" style="display:none" accept="image/*">
+    <button id="trigger-test" class="btn-test">Simulate Scan</button>
+
+    <script src="app.js"></script>
+</body>
+</html>

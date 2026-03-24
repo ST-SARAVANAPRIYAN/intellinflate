@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Number Plate Detection</title>
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-dark: #4338CA;
+            --dark: #1F2937;
+            --light: #F3F4F6;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--light);
+            color: var(--dark);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            background-color: white;
+            width: 100%;
+            padding: 1.5rem 0;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            color: var(--primary);
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            padding: 0 20px;
+            box-sizing: border-box;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: white;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 24px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .upload-area {
+            border: 2px dashed #D1D5DB;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: #EEF2FF;
+        }
+
+        select, button {
+            padding: 10px 16px;
+            border-radius: 6px;
+            border: 1px solid #D1D5DB;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: var(--primary-dark);
+        }
+
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+        }
+
+        .result-box {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            background: #ECFDF5;
+            border: 1px solid #10B981;
+            text-align: center;
+        }
+
+        .result-text {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #047857;
+            margin-bottom: 5px;
+        }
+
+        .confidence {
+            color: #6B7280;
+            font-size: 0.9rem;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: block;
+        }
+
+        .error-box {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            background: #FEF2F2;
+            border: 1px solid #EF4444;
+            color: #B91C1C;
+            text-align: center;
+        }
+
+        #loading {
+            text-align: center;
+            margin-top: 20px;
+            color: #6B7280;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Smart Tire & Vehicle Monitoring App</h1>
+        <p style="margin: 5px 0 0 0; color: #6B7280; font-size: 0.9rem;">Number Plate Detection Module</p>
+    </header>
+
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('upload')">Image Upload</div>
+            <div class="tab" onclick="switchTab('camera')">Real-time Camera</div>
+        </div>
+
+        <!-- Upload Section -->
+        <div id="upload-section" class="card">
+            <h2 style="margin-top: 0;">Upload Vehicle Image</h2>
+            <div class="upload-area" onclick="document.getElementById('file-input').click()">
+                <p>Click here to select an image</p>
+                <input type="file" id="file-input" class="hidden" accept="image/*" onchange="handleFileUpload(event)">
+            </div>
+            
+            <div id="upload-loading" class="hidden" style="text-align:center; padding: 20px;">
+                Processing image... Please wait.
+            </div>
+
+            <div id="upload-result" class="hidden">
+                <img id="upload-preview" class="image-preview" src="" alt="Detected Plate">
+                <div id="upload-success-box" class="result-box hidden">
+                    <div class="result-text" id="upload-text"></div>
+                    <div class="confidence" id="upload-confidence"></div>
+                </div>
+                <div id="upload-error-box" class="error-box hidden"></div>
+            </div>
+        </div>
+
+        <!-- Camera Section -->
+        <div id="camera-section" class="card hidden">
+            <h2 style="margin-top: 0;">Live Camera Detection</h2>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <button id="start-btn" onclick="startCamera()">Start Camera</button>
+                <button id="capture-btn" onclick="captureFrame()" disabled style="background:#10B981;">Scan Frame</button>
+                <button id="stop-btn" onclick="stopCamera()" disabled style="background:#EF4444;">Stop</button>
+            </div>
+
+            <div id="video-container">
+                <video id="videoElement" autoplay playsinline></video>
+                <canvas id="canvasElement" class="hidden"></canvas>
+            </div>
+
+            <div id="camera-loading" class="hidden" style="text-align:center; padding: 20px;">
+                Analyzing frame...
+            </div>
+
+            <div id="camera-result" class="hidden mt-4">
+                 <img id="camera-preview" class="image-preview" src="" alt="Detected Plate">
+                 <div id="camera-success-box" class="result-box hidden">
+                    <div class="result-text" id="camera-text"></div>
+                    <div class="confidence" id="camera-confidence"></div>
+                </div>
+                <div id="camera-error-box" class="error-box hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('upload-section').classList.add('hidden');
+            document.getElementById('camera-section').classList.add('hidden');
+            
+            if (tab === 'upload') {
+                document.querySelectorAll('.tab')[0].classList.add('active');
+                document.getElementById('upload-section').classList.remove('hidden');
+                stopCamera();
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('camera-section').classList.remove('hidden');
+            }
+        }
+
+        // Upload Logic
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('upload-loading').classList.remove('hidden');
+            document.getElementById('upload-result').classList.add('hidden');
+            document.getElementById('upload-success-box').classList.add('hidden');
+            document.getElementById('upload-error-box').classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                document.getElementById('upload-loading').classList.add('hidden');
+                document.getElementById('upload-result').classList.remove('hidden');
+
+                if (data.error) {
+                    document.getElementById('upload-error-box').textContent = data.error;
+                    document.getElementById('upload-error-box').classList.remove('hidden');
+                    document.getElementById('upload-preview').classList.add('hidden');
+                } else {
+                    document.getElementById('upload-preview').src = 'data:image/jpeg;base64,' + data.image;
+                    document.getElementById('upload-preview').classList.remove('hidden');
+                    document.getElementById('upload-text').textContent = data.text;
+                    document.getElementById('upload-confidence').textContent = 'Confidence: ' + data.confidence;
+                    document.getElementById('upload-success-box').classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error(err);
+                document.getElementById('upload-loading').classList.add('hidden');
+                document.getElementById('upload-result').classList.remove('hidden');
+                document.getElementById('upload-error-box').textContent = "Upload failed.";
+                document.getElementById('upload-error-box').classList.remove('hidden');
+            }
+        }
+
+        // Camera Logic
+        let video = document.getElementById('videoElement');
+        let canvas = document.getElementById('canvasElement');
+        let stream = null;
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                video.srcObject = stream;
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('capture-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = false;
+            } catch (err) {
+                alert("Error accessing camera: " + err.message);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('capture-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = true;
+            }
+        }
+
+        async function captureFrame() {
+            if (!stream) return;
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            let imageData = canvas.toDataURL('image/jpeg');
+
+            document.getElementById('camera-loading').classList.remove('hidden');
+            document.getElementById('camera-result').classList.add('hidden');
+            document.getElementById('camera-success-box').classList.add('hidden');
+            document.getElementById('camera-error-box').classList.add('hidden');
+
+            try {
+                const response = await fetch('/detect_frame', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+                const data = await response.json();
+
+                document.getElementById('camera-loading').classList.add('hidden');
+                document.getElementById('camera-result').classList.remove('hidden');
+
+                if (data.error) {
+                    document.getElementById('camera-error-box').textContent = data.error;
+                    document.getElementById('camera-error-box').classList.remove('hidden');
+                    document.getElementById('camera-preview').classList.add('hidden');
+                } else {
+                    document.getElementById('camera-preview').src = 'data:image/jpeg;base64,' + data.image;
+                    document.getElementById('camera-preview').classList.remove('hidden');
+                    document.getElementById('camera-text').textContent = data.text;
+                    document.getElementById('camera-confidence').textContent = 'Confidence: ' + data.confidence;
+                    document.getElementById('camera-success-box').classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error(err);
+                document.getElementById('camera-loading').classList.add('hidden');
+                document.getElementById('camera-result').classList.remove('hidden');
+                document.getElementById('camera-error-box').textContent = "Server error while processing frame.";
+                document.getElementById('camera-error-box').classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
