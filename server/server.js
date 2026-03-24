@@ -55,7 +55,7 @@ app.use(express.json());
 app.use('/uploads', express.static(uploadDir));
 
 // Serve frontend static files
-const frontendDir = path.join(__dirname, '..', 'frontend', 'public');
+const frontendDir = path.join(__dirname, 'public');
 app.use(express.static(frontendDir));
 
 // Health check

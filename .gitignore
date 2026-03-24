@@ -1,19 +1,19 @@
 # Node.js
-node_modules/
+server/node_modules/
 npm-debug.log
 yarn-error.log
-.env
+server/.env
 
 # Python
-backend/python-services/venv/
+server/python-services/venv/
 __pycache__/
 *.py[cod]
 *$py.class
 
 # Android
 .gradle/
-build/
-local.properties
+mobile/build/
+mobile/local.properties
 .idea/
 *.iml
 captures/
