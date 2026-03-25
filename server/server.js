@@ -308,24 +308,58 @@ app.get('/api/ping', (req, res) => {
     res.json({ pong: true, timestamp: Date.now() });
 });
 
-app.listen(HTTP_PORT, '0.0.0.0', () => {
-    console.log(`🚀 Node.js Backend running on http://0.0.0.0:${HTTP_PORT}`);
-});
+// ── Server Listeners with Fallback ───────────────────────────────────────────
 
-// ── WebSocket server ──────────────────────────────────────────────────────────
-const wss = new WebSocket.Server({ port: WS_PORT });
+function startExpressServer(port) {
+    const server = app.listen(port, '0.0.0.0', () => {
+        console.log(`🚀 Node.js Backend running on http://0.0.0.0:${port}`);
+    });
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`⚠️  HTTP Port ${port} is in use, trying ${Number(port) + 1}...`);
+            startExpressServer(Number(port) + 1);
+        } else {
+            console.error('❌ Express server error:', err);
+        }
+    });
+}
+
 let connectedClients = new Set();
+let wss;
 
-wss.on('connection', (ws) => {
-    console.log('✅ WS client connected');
-    connectedClients.add(ws);
-    ws.send(JSON.stringify({ type: 'connection', message: 'Connected to IntelliInflate Server', ts: Date.now() }));
-    
-    ws.on('close', () => connectedClients.delete(ws));
-    ws.on('error', () => connectedClients.delete(ws));
-});
+function startWebSocketServer(port) {
+    wss = new WebSocket.Server({ port });
+
+    wss.on('listening', () => {
+        console.log(`✅ WebSocket server running on port ${port}`);
+    });
+
+    wss.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`⚠️  WS Port ${port} is in use, trying ${Number(port) + 1}...`);
+            startWebSocketServer(Number(port) + 1);
+        } else {
+            console.error('❌ WebSocket server error:', err);
+        }
+    });
+
+    wss.on('connection', (ws) => {
+        console.log('✅ WS client connected');
+        connectedClients.add(ws);
+        ws.send(JSON.stringify({ type: 'connection', message: 'Connected to IntelliInflate Server', ts: Date.now() }));
+        
+        ws.on('close', () => connectedClients.delete(ws));
+        ws.on('error', () => connectedClients.delete(ws));
+    });
+}
+
+// Start Servers
+startExpressServer(HTTP_PORT);
+startWebSocketServer(WS_PORT);
 
 function broadcastToClients(data) {
+    if (!wss) return;
     const msg = JSON.stringify(data);
     connectedClients.forEach(c => { if (c.readyState === WebSocket.OPEN) c.send(msg); });
 }
