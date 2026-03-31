@@ -5,6 +5,9 @@ yarn-error.log
 server/.env
 
 # Python
+.venv/
+.venv311/
+venv/
 server/python-services/venv/
 server/python-services/.venv311/
 __pycache__/

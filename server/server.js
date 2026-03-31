@@ -345,8 +345,7 @@ function runPythonScript(scriptName, args, onComplete, onFailure) {
     const scriptPath = path.join(PYTHON_SERVICES_DIR, scriptName);
     const preferredPython = process.env.PYTHON_EXECUTABLE || '';
     const venv311Python = path.join(PYTHON_SERVICES_DIR, '.venv311', 'bin', 'python');
-    const legacyVenvPython = path.join(PYTHON_SERVICES_DIR, 'venv', 'bin', 'python3');
-    const pythonCandidates = [preferredPython, venv311Python, legacyVenvPython, 'python3'].filter(Boolean);
+    const pythonCandidates = [preferredPython, venv311Python, 'python3'].filter(Boolean);
     const pythonCmd = pythonCandidates.find((candidate) => candidate === 'python3' || fs.existsSync(candidate)) || 'python3';
 
     const pythonProcess = spawn(pythonCmd, [scriptPath, ...args]);
