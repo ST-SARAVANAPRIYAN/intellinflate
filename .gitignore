@@ -20,6 +20,8 @@ mobile/local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+*.apk
+*.aab
 
 # Flutter mobile app (generated artifacts)
 mobile/.dart_tool/
@@ -35,6 +37,11 @@ mobile/**/Flutter/flutter_export_environment.sh
 mobile/**/Pods/
 mobile/**/.symlinks/
 mobile/**/DerivedData/
+
+# Kotlin backup app generated artifacts
+mobile_backup_kotlin/.gradle/
+mobile_backup_kotlin/build/
+mobile_backup_kotlin/local.properties
 
 # OS
 .DS_Store
