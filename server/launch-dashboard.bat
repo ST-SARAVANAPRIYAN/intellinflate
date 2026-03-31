@@ -1,8 +1,8 @@
 @echo off
-REM IntelliInflate Web Dashboard Launcher
+REM IntellInflate Web Dashboard Launcher
 echo.
 echo ========================================
-echo   IntelliInflate Dashboard Launcher
+echo   IntellInflate Dashboard Launcher
 echo ========================================
 echo.
 echo Opening dashboard in your default browser...

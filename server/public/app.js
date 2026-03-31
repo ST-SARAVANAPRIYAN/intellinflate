@@ -1,4 +1,4 @@
-// TireGuard AI - Central Monitoring Dashboard Logic
+// IntellInflate - Central Monitoring Dashboard Logic
 
 const API_URL = 'http://localhost:3000';
 let activeDetection = null;
@@ -9,14 +9,17 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTime();
     setInterval(updateTime, 1000);
 
-    // Simulation Trigger (Select Image)
+    // Upload scan trigger
     const testUpload = document.getElementById('test-upload');
-    const triggerBtn = document.getElementById('trigger-test');
+    const uploadBtn = document.getElementById('upload-scan-btn');
+    const liveBtn = document.getElementById('live-scan-btn');
 
-    triggerBtn.addEventListener('click', () => {
+    uploadBtn.addEventListener('click', () => {
         stopLiveScan();
         testUpload.click();
     });
+
+    liveBtn.addEventListener('click', toggleLiveScan);
     
     testUpload.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
@@ -24,26 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Add Live Scan Button to UI dynamically if not present
-    setupLiveScanUI();
-
     // Initialize Dashboard
-    addLog('System initialized. Monitoring camera feeds...', 'system');
+    addLog('IntellInflate initialized. Choose mode and upload image or start live scan.', 'system');
 });
-
-function setupLiveScanUI() {
-    const topActions = document.querySelector('.top-actions');
-    const liveBtn = document.createElement('button');
-    liveBtn.id = 'live-scan-btn';
-    liveBtn.className = 'status-badge';
-    liveBtn.style.backgroundColor = 'var(--accent)';
-    liveBtn.style.color = 'white';
-    liveBtn.style.border = 'none';
-    liveBtn.style.cursor = 'pointer';
-    liveBtn.textContent = 'Start Live Scan';
-    liveBtn.onclick = toggleLiveScan;
-    topActions.prepend(liveBtn);
-}
 
 function updateTime() {
     const now = new Date();
@@ -73,7 +59,7 @@ async function toggleLiveScan() {
             isLiveScanning = true;
             btn.textContent = 'Stop Live Scan';
             btn.style.backgroundColor = 'var(--danger)';
-            addLog('Live scan started.', 'system');
+            addLog(`Live scan started in mode: ${document.getElementById('analysis-mode').value}`, 'system');
             
             // Capture frame every 3 seconds for analysis
             liveScanInterval = setInterval(() => captureAndAnalyze(video), 5000);
@@ -158,7 +144,7 @@ async function processVehicleScan(file, isLive = false) {
                     else displayUnknownUser();
                 }
             } else {
-                if (!isLive) addLog('Plate detection failed', 'alert');
+                if (!isLive) addLog('Number plate detection failed', 'alert');
             }
         } else {
             // Specialized Tire Analysis (Front/Side)
@@ -170,7 +156,7 @@ async function processVehicleScan(file, isLive = false) {
 
             if (data.success) {
                 if (mode === 'FRONT') {
-                    addLog(`Front view analysis complete: Tread ${data.tread.value}, Alignment ${data.alignment.value}`, 'system');
+                    addLog(`Front-angle analysis complete: Tread ${data.tread.value}, Alignment ${data.alignment.value}`, 'system');
                     updateHealthUI({
                         score: data.overall_score,
                         tread: data.tread,
@@ -179,7 +165,7 @@ async function processVehicleScan(file, isLive = false) {
                         leakage: { status: '32.0 PSI', value: 'Stable', level: 0 }
                     });
                 } else if (mode === 'SIDE') {
-                    addLog(`Side view analysis complete: ${data.cracks.status} (${data.cracks.count} cracks)`, 'system');
+                    addLog(`Side-angle crack analysis complete: ${data.cracks.status} (${data.cracks.count} cracks)`, 'system');
                     updateHealthUI({
                         score: 100 - (data.cracks.level * 25),
                         tread: { status: 'Not Scanned', value: '--', level: 0 },
@@ -191,7 +177,7 @@ async function processVehicleScan(file, isLive = false) {
             }
         }
     } catch (err) {
-        if (!isLive) addLog('Error communicating with backend', 'alert');
+        if (!isLive) addLog('Error communicating with IntellInflate backend', 'alert');
         console.error(err);
     }
 }

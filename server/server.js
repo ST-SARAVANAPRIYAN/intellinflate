@@ -9,6 +9,8 @@ const multer     = require('multer');
 const path       = require('path');
 const { spawn }  = require('child_process');
 const fs         = require('fs');
+const crypto     = require('crypto');
+const os         = require('os');
 
 const User = require('./models/User');
 
@@ -18,11 +20,100 @@ const WS_PORT    = process.env.WS_PORT    || 8080;
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB  = process.env.MONGODB_DB  || 'intellinflate_db';
 const JWT_SECRET  = process.env.JWT_SECRET  || 'supersecretkey';
+const PYTHON_SERVICES_DIR = process.env.PYTHON_SERVICES_DIR || path.join(__dirname, 'python-services');
+let currentHttpPort = Number(HTTP_PORT);
+let currentWsPort = Number(WS_PORT);
+
+let mongoReady = false;
+const memoryUsers = new Map();
+
+function log(level, message, meta = {}) {
+    const payload = {
+        level,
+        message,
+        ts: new Date().toISOString(),
+        ...meta
+    };
+    const line = JSON.stringify(payload);
+    if (level === 'error') {
+        console.error(line);
+        return;
+    }
+    if (level === 'warn') {
+        console.warn(line);
+        return;
+    }
+    console.log(line);
+}
+
+function getNetworkIPv4Addresses() {
+    const interfaces = os.networkInterfaces();
+    const ips = [];
+
+    for (const ifaceName of Object.keys(interfaces)) {
+        const entries = interfaces[ifaceName] || [];
+        for (const addr of entries) {
+            if (addr && addr.family === 'IPv4' && !addr.internal) {
+                ips.push(addr.address);
+            }
+        }
+    }
+
+    return [...new Set(ips)];
+}
+
+function logServiceUrls(httpPort, wsPort) {
+    const networkIps = getNetworkIPv4Addresses();
+    const frontendUrl = `http://localhost:${httpPort}`;
+    const apiBaseUrl = `http://localhost:${httpPort}/api`;
+    const healthUrl = `http://localhost:${httpPort}/health`;
+    const websocketUrl = `ws://localhost:${wsPort}`;
+    const networkFrontendUrls = networkIps.map((ip) => `http://${ip}:${httpPort}`);
+    const networkApiUrls = networkIps.map((ip) => `http://${ip}:${httpPort}/api`);
+
+    log('info', 'Service URLs', {
+        frontendUrl,
+        apiBaseUrl,
+        healthUrl,
+        websocketUrl,
+        networkFrontendUrls,
+        networkApiUrls
+    });
+}
+
+function getVisionModelStack() {
+    return {
+        project: 'intellinflate',
+        tasks: {
+            numberPlateUserDetection: {
+                endpoint: '/api/detect',
+                mode: 'PLATE',
+                approach: 'Contour-based plate region + EasyOCR (pretrained OCR)'
+            },
+            tireSideAngleCrackDetection: {
+                endpoint: '/api/analyze-tire',
+                mode: 'SIDE',
+                approach: 'MobileNetV2/EfficientNet transfer-learning classifier (fallback: OpenCV contour heuristics)'
+            },
+            tireFrontAngleTreadAlignment: {
+                endpoint: '/api/analyze-tire',
+                mode: 'FRONT',
+                approach: 'MobileNetV2/ResNet tread classifier + OpenCV strip-based misalignment score'
+            }
+        },
+        recommendation: {
+            crackModel: 'MobileNetV2/EfficientNet transfer learning',
+            treadModel: 'MobileNetV2/ResNet transfer learning',
+            plateDetection: 'YOLOv5/YOLOv8 + EasyOCR',
+            note: 'Run inference on server; ESP32-CAM captures images only.'
+        }
+    };
+}
 
 // ── MongoDB (Mongoose) ────────────────────────────────────────────────────────
 async function connectMongo() {
     if (!MONGODB_URI || MONGODB_URI.includes('<username>')) {
-        console.warn('⚠️  MongoDB URI not set or invalid in .env — database writes disabled');
+        log('warn', 'MongoDB URI not set/invalid, using in-memory fallback');
         return;
     }
     try {
@@ -32,27 +123,58 @@ async function connectMongo() {
             serverSelectionTimeoutMS: 30000,
             connectTimeoutMS: 30000
         });
-        console.log(`✅ MongoDB (Mongoose) connected → ${MONGODB_DB}`);
+        mongoReady = true;
+        log('info', 'MongoDB connected', { db: MONGODB_DB });
     } catch (err) {
-        console.error('❌ MongoDB connection failed:', err.message);
+        mongoReady = false;
+        log('error', 'MongoDB connection failed, using in-memory fallback', { error: err.message });
     }
 }
 
 // ── Multer Config (for uploads) ────────────────────────────────────────────────
 const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (!file.mimetype || !file.mimetype.startsWith('image/')) {
+            return cb(new Error('Only image uploads are supported.'));
+        }
+        cb(null, true);
+    }
+});
 
 // ── Express HTTP server ───────────────────────────────────────────────────────
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(uploadDir));
+
+app.use((req, res, next) => {
+    req.requestId = crypto.randomUUID();
+    res.setHeader('x-request-id', req.requestId);
+    req.startTs = Date.now();
+    next();
+});
+
+app.use((req, res, next) => {
+    res.on('finish', () => {
+        log('info', 'HTTP request', {
+            requestId: req.requestId,
+            method: req.method,
+            path: req.path,
+            status: res.statusCode,
+            ms: Date.now() - req.startTs
+        });
+    });
+    next();
+});
 
 // Serve frontend static files
 const frontendDir = path.join(__dirname, 'public');
@@ -60,8 +182,56 @@ app.use(express.static(frontendDir));
 
 // Health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected', ts: Date.now() });
+    res.json({
+        status: 'ok',
+        db: mongoose.connection.readyState === 1 ? 'connected' : 'fallback-memory',
+        memoryUsers: memoryUsers.size,
+        ts: Date.now()
+    });
 });
+
+app.get('/api/model-stack', (req, res) => {
+    res.json({ success: true, ...getVisionModelStack() });
+});
+
+function validateRequired(fields) {
+    return (req, res, next) => {
+        const missing = fields.filter((field) => !req.body?.[field] || String(req.body[field]).trim() === '');
+        if (missing.length > 0) {
+            return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
+        }
+        next();
+    };
+}
+
+function normalizePlate(value = '') {
+    return value.toUpperCase().replace(/\s/g, '');
+}
+
+async function findUserByEmailOrPlate(email, numberPlate) {
+    const normalizedPlate = normalizePlate(numberPlate);
+    if (mongoReady) {
+        return User.findOne({ $or: [{ email }, { numberPlate: normalizedPlate }] });
+    }
+    for (const user of memoryUsers.values()) {
+        if (user.email === email || user.numberPlate === normalizedPlate) {
+            return user;
+        }
+    }
+    return null;
+}
+
+async function saveUser(userPayload) {
+    if (mongoReady) {
+        const doc = new User(userPayload);
+        await doc.save();
+        return doc;
+    }
+    const id = crypto.randomUUID();
+    const user = { ...userPayload, _id: id };
+    memoryUsers.set(id, user);
+    return user;
+}
 
 /**
  * POST /api/register
@@ -70,17 +240,17 @@ app.get('/health', (req, res) => {
 app.post('/api/register', async (req, res) => {
     try {
         const { username, email, password, numberPlate, vehicleModel, phone } = req.body;
-        console.log(`📩 Registration attempt: ${email}, Plate: ${numberPlate}`);
+        log('info', 'Registration attempt', { requestId: req.requestId, email, numberPlate });
         
         // Basic validation
         if (!username || !email || !password || !numberPlate) {
             return res.status(400).json({ error: 'All essential details are required.' });
         }
 
-        const normalizedPlate = numberPlate.toUpperCase().replace(/\s/g, '');
+        const normalizedPlate = normalizePlate(numberPlate);
 
         // Check for existing user
-        const existingUser = await User.findOne({ $or: [{ email }, { numberPlate: normalizedPlate }] });
+        const existingUser = await findUserByEmailOrPlate(email, normalizedPlate);
         if (existingUser) {
             return res.status(400).json({ error: 'User with this email or number plate already exists.' });
         }
@@ -89,7 +259,7 @@ app.post('/api/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Create user
-        const newUser = new User({
+        const newUser = await saveUser({
             username,
             email,
             password: hashedPassword,
@@ -98,7 +268,6 @@ app.post('/api/register', async (req, res) => {
             phone
         });
 
-        await newUser.save();
         res.status(201).json({ 
             message: 'User registered successfully!', 
             user: {
@@ -111,7 +280,7 @@ app.post('/api/register', async (req, res) => {
             }
         });
     } catch (err) {
-        console.error('Registration error:', err);
+        log('error', 'Registration error', { requestId: req.requestId, error: err.message });
         res.status(500).json({ error: 'Internal server error.' });
     }
 });
@@ -120,22 +289,28 @@ app.post('/api/register', async (req, res) => {
  * POST /api/login
  * User login with email or number plate.
  */
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', validateRequired(['identifier', 'password']), async (req, res) => {
     try {
         const { identifier, password } = req.body;
 
-        if (!identifier || !password) {
-            return res.status(400).json({ error: 'Identifier and password are required.' });
+        const normalizedIdentifier = identifier.includes('@') ? identifier : normalizePlate(identifier);
+
+        let user;
+        if (mongoReady) {
+            user = await User.findOne({ 
+                $or: [
+                    { email: identifier }, 
+                    { numberPlate: normalizedIdentifier }
+                ] 
+            });
+        } else {
+            for (const candidate of memoryUsers.values()) {
+                if (candidate.email === identifier || candidate.numberPlate === normalizedIdentifier) {
+                    user = candidate;
+                    break;
+                }
+            }
         }
-
-        const normalizedIdentifier = identifier.includes('@') ? identifier : identifier.toUpperCase().replace(/\s/g, '');
-
-        const user = await User.findOne({ 
-            $or: [
-                { email: identifier }, 
-                { numberPlate: normalizedIdentifier }
-            ] 
-        });
 
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials.' });
@@ -161,10 +336,39 @@ app.post('/api/login', async (req, res) => {
             }
         });
     } catch (err) {
-        console.error('Login error:', err);
+        log('error', 'Login error', { requestId: req.requestId, error: err.message });
         res.status(500).json({ error: 'Internal server error.' });
     }
 });
+
+function runPythonScript(scriptName, args, onComplete, onFailure) {
+    const scriptPath = path.join(PYTHON_SERVICES_DIR, scriptName);
+    const preferredPython = process.env.PYTHON_EXECUTABLE || '';
+    const venv311Python = path.join(PYTHON_SERVICES_DIR, '.venv311', 'bin', 'python');
+    const legacyVenvPython = path.join(PYTHON_SERVICES_DIR, 'venv', 'bin', 'python3');
+    const pythonCandidates = [preferredPython, venv311Python, legacyVenvPython, 'python3'].filter(Boolean);
+    const pythonCmd = pythonCandidates.find((candidate) => candidate === 'python3' || fs.existsSync(candidate)) || 'python3';
+
+    const pythonProcess = spawn(pythonCmd, [scriptPath, ...args]);
+    let outputData = '';
+    let errorData = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+        outputData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        errorData += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+        if (code !== 0) {
+            onFailure(new Error(errorData || `Python process exited with code ${code}`));
+            return;
+        }
+        onComplete(outputData);
+    });
+}
 
 /**
  * POST /api/analyze-tire
@@ -174,36 +378,34 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/analyze-tire', upload.single('image'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
     
-    const mode = req.body.mode || 'FRONT'; // Default to FRONT if not specified
+    const mode = (req.body.mode || 'FRONT').toUpperCase();
+    if (!['FRONT', 'SIDE'].includes(mode)) {
+        return res.status(400).json({ error: 'Invalid mode. Use FRONT or SIDE.' });
+    }
+
     const imagePath = req.file.path;
-    const pythonScript = path.join(__dirname, 'python-services', 'tire_analysis.py');
-    const venvPython = path.join(__dirname, 'python-services', 'venv', 'bin', 'python3');
 
-    // Call Python script with mode
-    const pythonProcess = spawn(venvPython, [pythonScript, '-i', imagePath, '-m', mode]);
-
-    let outputData = '';
-    pythonProcess.stdout.on('data', (data) => {
-        outputData += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`Python Error (${mode} Analysis): ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-        if (code !== 0) {
+    runPythonScript(
+        'tire_analysis.py',
+        ['-i', imagePath, '-m', mode],
+        (outputData) => {
+            try {
+                const result = JSON.parse(outputData);
+                return res.json(result);
+            } catch (e) {
+                log('error', 'Failed to parse tire analysis output', {
+                    requestId: req.requestId,
+                    mode,
+                    outputPreview: outputData.slice(0, 300)
+                });
+                return res.status(500).json({ error: 'Failed to parse analysis results.' });
+            }
+        },
+        (error) => {
+            log('error', 'Python tire analysis failed', { requestId: req.requestId, mode, error: error.message });
             return res.status(500).json({ error: `Python ${mode} analysis script failed.` });
         }
-
-        try {
-            const result = JSON.parse(outputData);
-            res.json(result);
-        } catch (e) {
-            console.error('Failed to parse Python output:', outputData);
-            res.status(500).json({ error: 'Failed to parse analysis results.' });
-        }
-    });
+    );
 });
 
 /**
@@ -227,37 +429,51 @@ async function detectVehicle(req, res) {
     if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
 
     const imagePath = req.file.path;
-    const pythonScript = path.join(__dirname, 'python-services', 'number_plate_detection.py');
-    const venvPython = path.join(__dirname, 'python-services', 'venv', 'bin', 'python3');
 
-    // Call Python script using the virtual environment
-    const pythonProcess = spawn(venvPython, [pythonScript, '-i', imagePath]);
+    runPythonScript(
+        'number_plate_detection.py',
+        ['-i', imagePath],
+        async (outputData) => {
+            let detectedPlate = null;
+            let confidence = 0;
 
-    let outputData = '';
-    pythonProcess.stdout.on('data', (data) => {
-        outputData += data.toString();
-    });
+            try {
+                const parsed = JSON.parse(outputData);
+                if (parsed?.success && parsed?.text) {
+                    detectedPlate = normalizePlate(parsed.text);
+                    confidence = Number(parsed.confidence || 0);
+                }
+            } catch (err) {
+                const match = outputData.match(/Detected: ([\w\s-]+) \(Confidence: ([\d.]+)\)/);
+                if (match) {
+                    detectedPlate = normalizePlate(match[1]);
+                    confidence = parseFloat(match[2]);
+                }
+            }
 
-    pythonProcess.stderr.on('data', (data) => {
-        console.error(`Python Error: ${data}`);
-    });
+            if (!detectedPlate) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'No number plate detected.',
+                    rawOutput: outputData.trim()
+                });
+            }
 
-    pythonProcess.on('close', async (code) => {
-        if (code !== 0) {
-            return res.status(500).json({ error: 'Python detection script failed.' });
-        }
+            let user = null;
+            if (mongoReady) {
+                user = await User.findOne({ numberPlate: detectedPlate });
+            } else {
+                for (const candidate of memoryUsers.values()) {
+                    if (candidate.numberPlate === detectedPlate) {
+                        user = candidate;
+                        break;
+                    }
+                }
+            }
 
-        const match = outputData.match(/Detected: ([\w\s-]+) \(Confidence: ([\d.]+)\)/);
-        
-        if (match) {
-            const detectedPlate = match[1].toUpperCase().replace(/\s/g, '');
-            const confidence = parseFloat(match[2]);
-
-            const user = await User.findOne({ numberPlate: detectedPlate });
-
-            const result = {
+            return res.json({
                 stationId: "STATION-001",
-                sessionId: require('crypto').randomUUID(),
+                sessionId: crypto.randomUUID(),
                 success: true,
                 detectedPlate,
                 confidence,
@@ -267,18 +483,13 @@ async function detectVehicle(req, res) {
                     vehicleModel: user.vehicleModel,
                     phone: user.phone
                 } : null
-            };
-            
-            // Format for mobile app (if needed)
-            res.json(result);
-        } else {
-            res.status(404).json({
-                success: false,
-                message: 'No number plate detected.',
-                rawOutput: outputData.trim()
             });
+        },
+        (error) => {
+            log('error', 'Python vehicle detection failed', { requestId: req.requestId, error: error.message });
+            return res.status(500).json({ error: 'Python detection script failed.' });
         }
-    });
+    );
 }
 
 /**
@@ -288,7 +499,7 @@ async function detectVehicle(req, res) {
 app.get('/api/station/info', (req, res) => {
     res.json({
         stationId: "STATION-001",
-        name: "IntelliInflate Hub",
+        name: "IntellInflate Hub",
         location: "Main Workshop",
         ipAddress: req.ip,
         status: "ACTIVE",
@@ -312,15 +523,17 @@ app.get('/api/ping', (req, res) => {
 
 function startExpressServer(port) {
     const server = app.listen(port, '0.0.0.0', () => {
-        console.log(`🚀 Node.js Backend running on http://0.0.0.0:${port}`);
+        currentHttpPort = Number(port);
+        log('info', 'HTTP server started', { port });
+        logServiceUrls(currentHttpPort, currentWsPort);
     });
 
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
-            console.warn(`⚠️  HTTP Port ${port} is in use, trying ${Number(port) + 1}...`);
+            log('warn', 'HTTP port in use, trying next port', { port, nextPort: Number(port) + 1 });
             startExpressServer(Number(port) + 1);
         } else {
-            console.error('❌ Express server error:', err);
+            log('error', 'Express server error', { error: err.message });
         }
     });
 }
@@ -332,22 +545,24 @@ function startWebSocketServer(port) {
     wss = new WebSocket.Server({ port });
 
     wss.on('listening', () => {
-        console.log(`✅ WebSocket server running on port ${port}`);
+        currentWsPort = Number(port);
+        log('info', 'WebSocket server started', { port });
+        logServiceUrls(currentHttpPort, currentWsPort);
     });
 
     wss.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
-            console.warn(`⚠️  WS Port ${port} is in use, trying ${Number(port) + 1}...`);
+            log('warn', 'WebSocket port in use, trying next port', { port, nextPort: Number(port) + 1 });
             startWebSocketServer(Number(port) + 1);
         } else {
-            console.error('❌ WebSocket server error:', err);
+            log('error', 'WebSocket server error', { error: err.message });
         }
     });
 
     wss.on('connection', (ws) => {
-        console.log('✅ WS client connected');
+        log('info', 'WS client connected');
         connectedClients.add(ws);
-        ws.send(JSON.stringify({ type: 'connection', message: 'Connected to IntelliInflate Server', ts: Date.now() }));
+        ws.send(JSON.stringify({ type: 'connection', message: 'Connected to IntellInflate Server', ts: Date.now() }));
         
         ws.on('close', () => connectedClients.delete(ws));
         ws.on('error', () => connectedClients.delete(ws));
@@ -365,7 +580,7 @@ function broadcastToClients(data) {
 }
 
 // ── Simulation mode (no hardware) ─────────────────────────────────────────────
-console.log('🎮 Simulation mode active (simulated ESP32 data)');
+log('info', 'Simulation mode active', { source: 'simulated-esp32' });
 const positions = ['FRONT_LEFT', 'FRONT_RIGHT', 'REAR_LEFT', 'REAR_RIGHT'];
 setInterval(() => {
     broadcastToClients({
@@ -382,8 +597,19 @@ setInterval(() => {
 // ── Startup ───────────────────────────────────────────────────────────────────
 connectMongo();
 
+app.use((err, req, res, next) => {
+    log('error', 'Unhandled express error', {
+        requestId: req?.requestId,
+        error: err?.message || 'Unknown error'
+    });
+    if (res.headersSent) {
+        return next(err);
+    }
+    return res.status(500).json({ error: 'Unexpected server error.' });
+});
+
 process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down...');
+    log('info', 'Server shutting down (SIGINT)');
     process.exit(0);
 });
 

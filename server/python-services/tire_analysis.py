@@ -5,10 +5,71 @@ import argparse
 import json
 import sys
 
+CRACK_MODEL_PATH = os.getenv("INTELLINFLATE_CRACK_MODEL", "").strip()
+TREAD_MODEL_PATH = os.getenv("INTELLINFLATE_TREAD_MODEL", "").strip()
+_TF_MODEL_CACHE = {}
+
+
+def _load_tf_model(model_path):
+    if not model_path:
+        return None
+    if model_path in _TF_MODEL_CACHE:
+        return _TF_MODEL_CACHE[model_path]
+    if not os.path.exists(model_path):
+        return None
+    try:
+        import tensorflow as tf  # Optional dependency for pretrained models
+        model = tf.keras.models.load_model(model_path)
+        _TF_MODEL_CACHE[model_path] = model
+        return model
+    except Exception:
+        return None
+
+
+def _predict_with_pretrained_model(image, model_path, labels):
+    model = _load_tf_model(model_path)
+    if model is None:
+        return None
+
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(rgb, (224, 224)).astype(np.float32) / 255.0
+    batch = np.expand_dims(resized, axis=0)
+
+    preds = model.predict(batch, verbose=0)
+    if preds.ndim == 2 and preds.shape[1] == 1:
+        score = float(preds[0][0])
+        idx = 1 if score >= 0.5 else 0
+        conf = score if idx == 1 else (1.0 - score)
+    else:
+        flat = preds[0]
+        idx = int(np.argmax(flat))
+        conf = float(flat[idx])
+
+    label = labels[idx] if idx < len(labels) else str(idx)
+    return {"label": label, "confidence": round(conf, 4)}
+
 def analyze_cracks_side_view(image):
     """
     Specialized analysis for Side View images to detect sidewall cracks.
     """
+    pretrained = _predict_with_pretrained_model(
+        image,
+        CRACK_MODEL_PATH,
+        ["no_crack", "crack"]
+    )
+    if pretrained is not None:
+        is_crack = pretrained["label"] == "crack"
+        confidence = pretrained["confidence"]
+        severity = "High" if is_crack and confidence >= 0.85 else "Medium"
+        return {
+            "status": "Cracks Detected" if is_crack else "Healthy",
+            "level": 2 if severity == "High" else (1 if is_crack else 0),
+            "count": 1 if is_crack else 0,
+            "details": ([{"severity": severity, "confidence": confidence}] if is_crack else []),
+            "message": f"Pretrained crack classifier result: {pretrained['label']} ({confidence * 100:.1f}%).",
+            "modelSource": "pretrained-transfer-learning"
+        }
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # Enhance contrast for crack detection
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -51,7 +112,8 @@ def analyze_cracks_side_view(image):
         "level": level,
         "count": len(cracks),
         "details": cracks,
-        "message": f"Detected {len(cracks)} potential sidewall cracks."
+        "message": f"Detected {len(cracks)} potential sidewall cracks.",
+        "modelSource": "opencv-heuristics"
     }
 
 def analyze_tread_and_alignment_front(image):
@@ -60,6 +122,12 @@ def analyze_tread_and_alignment_front(image):
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     height, width = gray.shape
+
+    pretrained_tread = _predict_with_pretrained_model(
+        image,
+        TREAD_MODEL_PATH,
+        ["healthy", "moderate_wear", "replace_soon"]
+    )
     
     # 1. Tread Depth Analysis (Edge density in the center area)
     roi_h = height // 2
@@ -71,12 +139,24 @@ def analyze_tread_and_alignment_front(image):
     tread_depth = round(1.6 + (edge_density * 40), 1) # Estimated mm
     tread_status = "Good"
     tread_level = 0
-    if tread_depth < 3.0:
-        tread_status = "Worn"
-        tread_level = 1
-    if tread_depth < 1.6:
-        tread_status = "Critical (Illegal)"
-        tread_level = 2
+    tread_source = "opencv-heuristics"
+    if pretrained_tread is not None:
+        mapping = {
+            "healthy": ("Healthy", 0, 7.2),
+            "moderate_wear": ("Moderate Wear", 1, 3.5),
+            "replace_soon": ("Replace Soon", 2, 1.8)
+        }
+        mapped = mapping.get(pretrained_tread["label"], ("Moderate Wear", 1, 3.0))
+        tread_status, tread_level, mapped_depth = mapped
+        tread_depth = mapped_depth
+        tread_source = "pretrained-transfer-learning"
+    else:
+        if tread_depth < 3.0:
+            tread_status = "Worn"
+            tread_level = 1
+        if tread_depth < 1.6:
+            tread_status = "Critical (Illegal)"
+            tread_level = 2
 
     # 2. Misalignment Analysis (Wear gradient / Angle)
     # Split the tread into 4 vertical strips and compare intensities
@@ -105,12 +185,14 @@ def analyze_tread_and_alignment_front(image):
         "tread": {
             "status": tread_status,
             "value": f"{tread_depth} mm",
-            "level": tread_level
+            "level": tread_level,
+            "modelSource": tread_source
         },
         "alignment": {
             "status": alignment_status,
             "value": f"{alignment_angle}°",
-            "level": alignment_level
+            "level": alignment_level,
+            "modelSource": "opencv-rule-based"
         },
         "overall_score": max(0, 100 - (tread_level * 30) - (alignment_level * 20))
     }

@@ -1,10 +1,11 @@
 {
-  "name": "intellinflate-websocket-server",
+  "name": "intellinflate-server",
   "version": "2.0.0",
-  "description": "IoT bridge server for IntelliInflate — ESP32, MongoDB Atlas, WebSocket",
+  "description": "IntellInflate unified server for dashboard, vision inference, and IoT bridge",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "seed": "sh seed.sjs"
   },
   "keywords": [
     "websocket",
@@ -13,7 +14,7 @@
     "iot",
     "mongodb"
   ],
-  "author": "IntelliInflate Team",
+  "author": "IntellInflate Team",
   "license": "MIT",
   "dependencies": {
     "@serialport/parser-readline": "^12.0.0",

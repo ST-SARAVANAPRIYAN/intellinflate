@@ -1,8 +1,8 @@
 @echo off
-REM IntelliInflate WebSocket Server Launcher
+REM IntellInflate WebSocket Server Launcher
 echo.
 echo ========================================
-echo   IntelliInflate WebSocket Server
+echo   IntellInflate WebSocket Server
 echo ========================================
 echo.
 echo Checking for Node.js...

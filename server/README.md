@@ -1,4 +1,4 @@
-# IntelliInflate Web Dashboard 🚗📊
+# IntellInflate Web Dashboard 🚗📊
 
 An interactive web-based dashboard for real-time vehicle and tire health monitoring. Features beautiful visualizations, real-time alerts, and multiple connection options for ESP32 hardware integration.
 
@@ -53,7 +53,7 @@ An interactive web-based dashboard for real-time vehicle and tire health monitor
 **Requirements:**
 - Chrome or Edge browser
 - ESP32 with Bluetooth enabled
-- ESP32 running the IntelliInflate sketch
+- ESP32 running the IntellInflate sketch
 
 **Steps:**
 1. Open `index.html` in Chrome/Edge
@@ -337,6 +337,6 @@ Built with:
 
 ---
 
-**Made with ❤️ for the IntelliInflate Project**
+**Made with ❤️ for the IntellInflate Project**
 
 *Last updated: February 2026*

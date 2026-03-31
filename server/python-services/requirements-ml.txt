@@ -1,0 +1,5 @@
+# Optional dependencies for pretrained model inference in IntellInflate
+# Install only when enabling pretrained paths in tire_analysis.py and number_plate_detection.py
+
+tensorflow>=2.12
+ultralytics>=8.2

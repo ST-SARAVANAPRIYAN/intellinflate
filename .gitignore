@@ -6,6 +6,7 @@ server/.env
 
 # Python
 server/python-services/venv/
+server/python-services/.venv311/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,6 +21,21 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Flutter mobile app (generated artifacts)
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub/
+mobile/.pub-cache/
+mobile/android/local.properties
+mobile/**/Flutter/ephemeral/
+mobile/**/Flutter/Generated.xcconfig
+mobile/**/Flutter/flutter_export_environment.sh
+mobile/**/Pods/
+mobile/**/.symlinks/
+mobile/**/DerivedData/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -27,3 +43,4 @@ Thumbs.db
 # Misc
 *.bak
 *.swp
+server_backup_*.tar.gz

@@ -9,15 +9,15 @@ You can directly save this as `README.md`.
 ---
 
 ```markdown
-# 🚗 AI-Based Contactless Tire Health Monitoring System
-## Main Project – Mobile Application Development
+# 🚗 IntellInflate Tire Intelligence Platform
+## IntellInflate Platform – Mobile Application Development
 
 ---
 
 # 1. 📌 Project Overview
 
 ## Project Title
-**AI-Based Contactless Tire Health Monitoring, Misalignment & Pressure Anomaly Detection System**
+**IntellInflate: AI Tire Health, Misalignment & Pressure Anomaly Detection System**
 
 ## Domain
 - Artificial Intelligence
@@ -27,7 +27,7 @@ You can directly save this as `README.md`.
 - IoT-Based Monitoring
 
 ## Project Type
-Main Project – Mobile Application Development
+IntellInflate Platform – Mobile Application Development
 
 ---
 
@@ -42,6 +42,18 @@ To develop a smart, AI-powered tire health monitoring system that:
 - Generates digital tire health reports via mobile application
 
 The system integrates vision-based inspection and pressure-based anomaly detection for preventive vehicle safety.
+
+## Pretrained Model Strategy (IntellInflate)
+
+- Crack detection: MobileNetV2 or EfficientNet transfer learning (binary: crack/no_crack).
+- Tread wear classification: MobileNetV2 or ResNet transfer learning (healthy/moderate_wear/replace_soon).
+- Misalignment detection: OpenCV rule-based strip comparison (left vs right wear gradient).
+- Number plate detection: YOLO (plate localization) + EasyOCR (text reading).
+
+Deployment architecture:
+- ESP32-CAM captures images only.
+- IntellInflate server runs all model inference.
+- No heavy CNN/YOLO inference on ESP32-CAM.
 
 ---
 
@@ -423,7 +435,7 @@ Score Range:
 
 # 17. 📌 Conclusion
 
-The AI-Based Contactless Tire Health Monitoring System combines computer vision, pressure analytics, and mobile application technology to create a comprehensive preventive maintenance solution.
+The IntellInflate Tire Intelligence Platform combines computer vision, pressure analytics, and mobile application technology to create a comprehensive preventive maintenance solution.
 
 By integrating visual inspection and pressure anomaly detection, the system enhances vehicle safety, reduces tire-related failures, and promotes digital health tracking for modern mobility.
 
