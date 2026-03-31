@@ -26,6 +26,16 @@ let currentWsPort = Number(WS_PORT);
 
 let mongoReady = false;
 const memoryUsers = new Map();
+const shouldLogHttpRequest = (reqPath, status, durationMs) => {
+    if (status >= 400) return true;
+    if (durationMs >= 1500) return true;
+    if (reqPath.startsWith('/api/')) return true;
+    if (reqPath === '/health') return false;
+
+    // Keep static asset noise out of logs unless it is an error/slow request.
+    const staticPattern = /\.(css|js|map|png|jpg|jpeg|gif|svg|ico|woff2?)$/i;
+    return !staticPattern.test(reqPath);
+};
 
 function log(level, message, meta = {}) {
     const payload = {
@@ -165,12 +175,16 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
     res.on('finish', () => {
+        const durationMs = Date.now() - req.startTs;
+        if (!shouldLogHttpRequest(req.path, res.statusCode, durationMs)) {
+            return;
+        }
         log('info', 'HTTP request', {
             requestId: req.requestId,
             method: req.method,
             path: req.path,
             status: res.statusCode,
-            ms: Date.now() - req.startTs
+            ms: durationMs
         });
     });
     next();
@@ -344,8 +358,8 @@ app.post('/api/login', validateRequired(['identifier', 'password']), async (req,
 function runPythonScript(scriptName, args, onComplete, onFailure) {
     const scriptPath = path.join(PYTHON_SERVICES_DIR, scriptName);
     const preferredPython = process.env.PYTHON_EXECUTABLE || '';
-    const venv311Python = path.join(PYTHON_SERVICES_DIR, '.venv311', 'bin', 'python');
-    const pythonCandidates = [preferredPython, venv311Python, 'python3'].filter(Boolean);
+    const venvPython = path.join(PYTHON_SERVICES_DIR, '.venv', 'bin', 'python');
+    const pythonCandidates = [preferredPython, venvPython, 'python3'].filter(Boolean);
     const pythonCmd = pythonCandidates.find((candidate) => candidate === 'python3' || fs.existsSync(candidate)) || 'python3';
 
     const pythonProcess = spawn(pythonCmd, [scriptPath, ...args]);
@@ -436,13 +450,19 @@ async function detectVehicle(req, res) {
             let detectedPlate = null;
             let confidence = 0;
 
+            // Extract JSON from output (may have debug/init messages before it)
+            const jsonMatch = outputData.match(/\{[^}]*"success"[^}]*\}/);
+            
             try {
-                const parsed = JSON.parse(outputData);
-                if (parsed?.success && parsed?.text) {
-                    detectedPlate = normalizePlate(parsed.text);
-                    confidence = Number(parsed.confidence || 0);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed?.success && parsed?.text) {
+                        detectedPlate = normalizePlate(parsed.text);
+                        confidence = Number(parsed.confidence || 0);
+                    }
                 }
             } catch (err) {
+                // Fall back to regex pattern matching
                 const match = outputData.match(/Detected: ([\w\s-]+) \(Confidence: ([\d.]+)\)/);
                 if (match) {
                     detectedPlate = normalizePlate(match[1]);
@@ -451,12 +471,24 @@ async function detectVehicle(req, res) {
             }
 
             if (!detectedPlate) {
-                return res.status(404).json({
+                log('warn', 'Plate not detected from uploaded image', {
+                    requestId: req.requestId,
+                    outputPreview: (outputData || '').trim().slice(0, 300)
+                });
+                return res.status(422).json({
                     success: false,
-                    message: 'No number plate detected.',
-                    rawOutput: outputData.trim()
+                    code: 'PLATE_NOT_DETECTED',
+                    message: 'No readable number plate detected in the uploaded image.',
+                    hint: 'Upload a clearer, well-lit image with the plate fully visible and less motion blur.',
+                    rawOutput: (outputData || '').trim()
                 });
             }
+
+            log('info', 'Plate detected successfully', {
+                requestId: req.requestId,
+                detectedPlate,
+                confidence
+            });
 
             let user = null;
             if (mongoReady) {
@@ -524,7 +556,9 @@ function startExpressServer(port) {
     const server = app.listen(port, '0.0.0.0', () => {
         currentHttpPort = Number(port);
         log('info', 'HTTP server started', { port });
-        logServiceUrls(currentHttpPort, currentWsPort);
+        if (wss && wss.address()) {
+            logServiceUrls(currentHttpPort, currentWsPort);
+        }
     });
 
     server.on('error', (err) => {
@@ -546,7 +580,9 @@ function startWebSocketServer(port) {
     wss.on('listening', () => {
         currentWsPort = Number(port);
         log('info', 'WebSocket server started', { port });
-        logServiceUrls(currentHttpPort, currentWsPort);
+        if (currentHttpPort) {
+            logServiceUrls(currentHttpPort, currentWsPort);
+        }
     });
 
     wss.on('error', (err) => {
@@ -595,6 +631,14 @@ setInterval(() => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 connectMongo();
+
+app.use('/api', (req, res) => {
+    return res.status(404).json({
+        success: false,
+        code: 'API_ROUTE_NOT_FOUND',
+        message: `Route not found: ${req.method} ${req.originalUrl}`
+    });
+});
 
 app.use((err, req, res, next) => {
     log('error', 'Unhandled express error', {

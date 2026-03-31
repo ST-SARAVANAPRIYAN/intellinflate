@@ -6,10 +6,9 @@ server/.env
 
 # Python
 .venv/
-.venv311/
 venv/
 server/python-services/venv/
-server/python-services/.venv311/
+server/python-services/.venv/
 __pycache__/
 *.py[cod]
 *$py.class
