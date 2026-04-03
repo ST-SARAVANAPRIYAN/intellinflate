@@ -4,6 +4,8 @@
   "description": "IntellInflate unified server for dashboard, vision inference, and IoT bridge",
   "main": "server.js",
   "scripts": {
+    "build": "vite build --config frontend/vite.config.mjs",
+    "prestart": "npm run build",
     "start": "node server.js",
     "seed": "sh seed.sjs"
   },
@@ -28,7 +30,13 @@
     "mongodb": "^6.21.0",
     "mongoose": "^9.3.1",
     "multer": "^2.1.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "serialport": "^12.0.0",
     "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "vite": "^8.0.3"
   }
 }

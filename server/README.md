@@ -35,6 +35,8 @@ An interactive web-based dashboard for real-time vehicle and tire health monitor
 
 ## 🚀 Quick Start
 
+The dashboard now uses a React frontend that is built into the same Express server. Run `npm start` to build the React app and launch the backend in one step.
+
 ### Option 1: Demo Mode (No Hardware Required)
 
 1. **Open the Dashboard**

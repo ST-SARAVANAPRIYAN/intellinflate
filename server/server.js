@@ -23,6 +23,7 @@ const JWT_SECRET  = process.env.JWT_SECRET  || 'supersecretkey';
 const PYTHON_SERVICES_DIR = process.env.PYTHON_SERVICES_DIR || path.join(__dirname, 'python-services');
 let currentHttpPort = Number(HTTP_PORT);
 let currentWsPort = Number(WS_PORT);
+let startupUrlsLogged = false;
 
 let mongoReady = false;
 const memoryUsers = new Map();
@@ -38,13 +39,23 @@ const shouldLogHttpRequest = (reqPath, status, durationMs) => {
 };
 
 function log(level, message, meta = {}) {
-    const payload = {
-        level,
-        message,
-        ts: new Date().toISOString(),
-        ...meta
-    };
-    const line = JSON.stringify(payload);
+    const parts = [`[${level}]`, message];
+    for (const [key, value] of Object.entries(meta)) {
+        if (value === undefined || value === null) {
+            continue;
+        }
+        if (Array.isArray(value)) {
+            parts.push(`${key}=${value.join(', ')}`);
+            continue;
+        }
+        if (typeof value === 'object') {
+            parts.push(`${key}=${JSON.stringify(value)}`);
+            continue;
+        }
+        parts.push(`${key}=${value}`);
+    }
+
+    const line = parts.join(' ');
     if (level === 'error') {
         console.error(line);
         return;
@@ -81,14 +92,30 @@ function logServiceUrls(httpPort, wsPort) {
     const networkFrontendUrls = networkIps.map((ip) => `http://${ip}:${httpPort}`);
     const networkApiUrls = networkIps.map((ip) => `http://${ip}:${httpPort}/api`);
 
-    log('info', 'Service URLs', {
-        frontendUrl,
-        apiBaseUrl,
-        healthUrl,
-        websocketUrl,
-        networkFrontendUrls,
-        networkApiUrls
-    });
+    console.log('[info] Service URLs');
+    console.log(`  Frontend: ${frontendUrl}`);
+    console.log(`  API: ${apiBaseUrl}`);
+    console.log(`  Health: ${healthUrl}`);
+    console.log(`  WebSocket: ${websocketUrl}`);
+
+    if (networkFrontendUrls.length > 0) {
+        console.log(`  Network frontend: ${networkFrontendUrls.join(', ')}`);
+    }
+
+    if (networkApiUrls.length > 0) {
+        console.log(`  Network API: ${networkApiUrls.join(', ')}`);
+    }
+}
+
+function tryLogStartupUrls() {
+    if (startupUrlsLogged) {
+        return;
+    }
+    if (!currentHttpPort || !currentWsPort || !wss || !wss.address()) {
+        return;
+    }
+    startupUrlsLogged = true;
+    logServiceUrls(currentHttpPort, currentWsPort);
 }
 
 function getVisionModelStack() {
@@ -220,6 +247,19 @@ function validateRequired(fields) {
 
 function normalizePlate(value = '') {
     return value.toUpperCase().replace(/\s/g, '');
+}
+
+function extractFirstJsonObject(raw = '') {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end < 0 || end <= start) {
+        return null;
+    }
+    try {
+        return JSON.parse(raw.slice(start, end + 1));
+    } catch (_) {
+        return null;
+    }
 }
 
 async function findUserByEmailOrPlate(email, numberPlate) {
@@ -438,89 +478,198 @@ app.post('/api/detect', upload.single('image'), async (req, res) => {
     detectVehicle(req, res);
 });
 
+app.post('/api/detect-batch', upload.array('images', 16), async (req, res) => {
+    const files = req.files || [];
+    if (files.length === 0) {
+        return res.status(400).json({ success: false, error: 'At least one image is required.' });
+    }
+
+    const results = [];
+    for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        // eslint-disable-next-line no-await-in-loop
+        const result = await detectVehicleFromPath(file.path, req.requestId);
+        results.push({
+            sourceIndex: index,
+            filename: file.originalname,
+            ...result
+        });
+    }
+
+    return res.json({
+        success: true,
+        total: files.length,
+        detected: results.filter((r) => r.success).length,
+        results
+    });
+});
+
+app.post('/api/analyze-tire-batch', upload.array('images', 16), async (req, res) => {
+    const files = req.files || [];
+    if (files.length === 0) {
+        return res.status(400).json({ success: false, error: 'At least one image is required.' });
+    }
+
+    const mode = (req.body.mode || 'FRONT').toUpperCase();
+    if (!['FRONT', 'SIDE'].includes(mode)) {
+        return res.status(400).json({ success: false, error: 'Invalid mode. Use FRONT or SIDE.' });
+    }
+
+    const results = [];
+    for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        // eslint-disable-next-line no-await-in-loop
+        const result = await analyzeTireFromPath(file.path, mode, req.requestId);
+        results.push({
+            sourceIndex: index,
+            filename: file.originalname,
+            ...result
+        });
+    }
+
+    return res.json({
+        success: true,
+        mode,
+        total: files.length,
+        analyzed: results.filter((r) => r.success).length,
+        results
+    });
+});
+
+function analyzeTireFromPath(imagePath, mode, requestId) {
+    return new Promise((resolve) => {
+        runPythonScript(
+            'tire_analysis.py',
+            ['-i', imagePath, '-m', mode],
+            (outputData) => {
+                const parsed = extractFirstJsonObject(outputData);
+                if (!parsed || !parsed.success) {
+                    resolve({
+                        success: false,
+                        code: 'TIRE_ANALYSIS_FAILED',
+                        message: parsed?.error || 'Failed to parse tire analysis output.'
+                    });
+                    return;
+                }
+                resolve(parsed);
+            },
+            (error) => {
+                log('error', 'Python tire analysis failed', { requestId, mode, error: error.message });
+                resolve({
+                    success: false,
+                    code: 'PYTHON_TIRE_ANALYSIS_ERROR',
+                    message: 'Python tire analysis script failed.'
+                });
+            }
+        );
+    });
+}
+
+function detectVehicleFromPath(imagePath, requestId) {
+    return new Promise((resolve) => {
+        runPythonScript(
+            'number_plate_detection.py',
+            ['-i', imagePath],
+            async (outputData) => {
+                let detectedPlate = null;
+                let confidence = 0;
+                let ocrEngine = null;
+                let bbox = null;
+                let imageSize = null;
+                let modelSource = null;
+                let detectorConfidence = null;
+                let fallbackReason = null;
+
+                const parsed = extractFirstJsonObject(outputData);
+                if (parsed?.success && parsed?.text) {
+                    detectedPlate = normalizePlate(parsed.text);
+                    confidence = Number(parsed.confidence || 0);
+                    ocrEngine = parsed.ocrEngine || null;
+                    bbox = parsed.bbox || null;
+                    imageSize = parsed.imageSize || null;
+                    modelSource = parsed.modelSource || null;
+                    detectorConfidence = parsed.detectorConfidence ?? null;
+                    fallbackReason = parsed.fallbackReason || null;
+                } else {
+                    const match = outputData.match(/Detected: ([\w\s-]+) \(Confidence: ([\d.]+)\)/);
+                    if (match) {
+                        detectedPlate = normalizePlate(match[1]);
+                        confidence = parseFloat(match[2]);
+                    }
+                }
+
+                if (!detectedPlate) {
+                    log('warn', 'Plate not detected from uploaded image', {
+                        requestId,
+                        outputPreview: (outputData || '').trim().slice(0, 300)
+                    });
+                    resolve({
+                        success: false,
+                        code: 'PLATE_NOT_DETECTED',
+                        message: 'No readable number plate detected in the uploaded image.',
+                        hint: 'Upload a clearer, well-lit image with plate fully visible.',
+                        rawOutput: (outputData || '').trim()
+                    });
+                    return;
+                }
+
+                log('info', 'Plate detected successfully', { requestId, detectedPlate, confidence, ocrEngine });
+
+                let user = null;
+                if (mongoReady) {
+                    user = await User.findOne({ numberPlate: detectedPlate });
+                } else {
+                    for (const candidate of memoryUsers.values()) {
+                        if (candidate.numberPlate === detectedPlate) {
+                            user = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                resolve({
+                    stationId: 'STATION-001',
+                    sessionId: crypto.randomUUID(),
+                    success: true,
+                    detectedPlate,
+                    confidence,
+                    ocrEngine,
+                    bbox,
+                    imageSize,
+                    modelSource,
+                    detectorConfidence,
+                    fallbackReason,
+                    user: user
+                        ? {
+                              username: user.username,
+                              email: user.email,
+                              vehicleModel: user.vehicleModel,
+                              phone: user.phone
+                          }
+                        : null
+                });
+            },
+            (error) => {
+                log('error', 'Python vehicle detection failed', { requestId, error: error.message });
+                resolve({
+                    success: false,
+                    code: 'PYTHON_DETECTION_ERROR',
+                    message: 'Python detection script failed.'
+                });
+            }
+        );
+    });
+}
+
 async function detectVehicle(req, res) {
     if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
 
-    const imagePath = req.file.path;
-
-    runPythonScript(
-        'number_plate_detection.py',
-        ['-i', imagePath],
-        async (outputData) => {
-            let detectedPlate = null;
-            let confidence = 0;
-
-            // Extract JSON from output (may have debug/init messages before it)
-            const jsonMatch = outputData.match(/\{[^}]*"success"[^}]*\}/);
-            
-            try {
-                if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (parsed?.success && parsed?.text) {
-                        detectedPlate = normalizePlate(parsed.text);
-                        confidence = Number(parsed.confidence || 0);
-                    }
-                }
-            } catch (err) {
-                // Fall back to regex pattern matching
-                const match = outputData.match(/Detected: ([\w\s-]+) \(Confidence: ([\d.]+)\)/);
-                if (match) {
-                    detectedPlate = normalizePlate(match[1]);
-                    confidence = parseFloat(match[2]);
-                }
-            }
-
-            if (!detectedPlate) {
-                log('warn', 'Plate not detected from uploaded image', {
-                    requestId: req.requestId,
-                    outputPreview: (outputData || '').trim().slice(0, 300)
-                });
-                return res.status(422).json({
-                    success: false,
-                    code: 'PLATE_NOT_DETECTED',
-                    message: 'No readable number plate detected in the uploaded image.',
-                    hint: 'Upload a clearer, well-lit image with the plate fully visible and less motion blur.',
-                    rawOutput: (outputData || '').trim()
-                });
-            }
-
-            log('info', 'Plate detected successfully', {
-                requestId: req.requestId,
-                detectedPlate,
-                confidence
-            });
-
-            let user = null;
-            if (mongoReady) {
-                user = await User.findOne({ numberPlate: detectedPlate });
-            } else {
-                for (const candidate of memoryUsers.values()) {
-                    if (candidate.numberPlate === detectedPlate) {
-                        user = candidate;
-                        break;
-                    }
-                }
-            }
-
-            return res.json({
-                stationId: "STATION-001",
-                sessionId: crypto.randomUUID(),
-                success: true,
-                detectedPlate,
-                confidence,
-                user: user ? {
-                    username: user.username,
-                    email: user.email,
-                    vehicleModel: user.vehicleModel,
-                    phone: user.phone
-                } : null
-            });
-        },
-        (error) => {
-            log('error', 'Python vehicle detection failed', { requestId: req.requestId, error: error.message });
-            return res.status(500).json({ error: 'Python detection script failed.' });
-        }
-    );
+    const result = await detectVehicleFromPath(req.file.path, req.requestId);
+    if (!result.success) {
+        const status = result.code === 'PLATE_NOT_DETECTED' ? 422 : 500;
+        return res.status(status).json(result);
+    }
+    return res.json(result);
 }
 
 /**
@@ -550,15 +699,21 @@ app.get('/api/ping', (req, res) => {
     res.json({ pong: true, timestamp: Date.now() });
 });
 
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.includes('.')) {
+        return next();
+    }
+
+    return res.sendFile(path.join(frontendDir, 'index.html'));
+});
+
 // ── Server Listeners with Fallback ───────────────────────────────────────────
 
 function startExpressServer(port) {
     const server = app.listen(port, '0.0.0.0', () => {
         currentHttpPort = Number(port);
         log('info', 'HTTP server started', { port });
-        if (wss && wss.address()) {
-            logServiceUrls(currentHttpPort, currentWsPort);
-        }
+        tryLogStartupUrls();
     });
 
     server.on('error', (err) => {
@@ -580,9 +735,7 @@ function startWebSocketServer(port) {
     wss.on('listening', () => {
         currentWsPort = Number(port);
         log('info', 'WebSocket server started', { port });
-        if (currentHttpPort) {
-            logServiceUrls(currentHttpPort, currentWsPort);
-        }
+        tryLogStartupUrls();
     });
 
     wss.on('error', (err) => {

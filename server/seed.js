@@ -13,10 +13,10 @@ function normalizePlate(value = '') {
 
 const seedUsers = [
   {
-    username: 'demo_user_1',
-    email: 'demo1@intellinflate.local',
-    password: 'Demo@123',
-    numberPlate: 'TN01AB1234',
+    username: 'saravana',
+    email: 'saravana',
+    password: '1234567890',
+    numberPlate: 'RJ1LCV0002',
     vehicleModel: 'Hyundai i20',
     phone: '9000000001',
   },

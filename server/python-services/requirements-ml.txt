@@ -3,3 +3,5 @@
 
 tensorflow>=2.12
 ultralytics>=8.2
+paddleocr>=2.7
+paddlepaddle>=2.6

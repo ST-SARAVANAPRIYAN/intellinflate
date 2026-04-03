@@ -41,7 +41,7 @@ The system integrates vision-based inspection and pressure-based anomaly detecti
 - Crack detection: MobileNetV2 or EfficientNet transfer learning (binary: crack/no_crack).
 - Tread wear classification: MobileNetV2 or ResNet transfer learning (healthy/moderate_wear/replace_soon).
 - Misalignment detection: OpenCV rule-based strip comparison (left vs right wear gradient).
-- Number plate detection: YOLO (plate localization) + EasyOCR (text reading).
+- Number plate detection: YOLOv8 (plate localization) + PaddleOCR (text reading) + regex rule correction.
 
 Deployment architecture:
 - ESP32-CAM captures images only.
