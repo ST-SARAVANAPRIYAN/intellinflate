@@ -96,7 +96,7 @@ class _VehicleDetectionScreenState extends State<VehicleDetectionScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             OutlinedButton(onPressed: () => _pickAndDetect(viewModel), child: const Text("RE-SCAN")),
-            ElevatedButton(onPressed: () => viewModel.selectTab(NavigationTab.tireScan), child: const Text("PROCEED TO TIRES")),
+            ElevatedButton(onPressed: () => viewModel.selectTab(NavigationTab.tireScan), child: const Text("PROCEED TO HEALTH SCAN")),
           ],
         )
       ],

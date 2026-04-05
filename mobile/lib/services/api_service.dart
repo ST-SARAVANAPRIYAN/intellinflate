@@ -98,6 +98,14 @@ class ApiService {
         e.type == DioExceptionType.connectionError;
   }
 
+  void setAuthToken(String? token) {
+    if (token == null || token.trim().isEmpty) {
+      _dio.options.headers.remove('Authorization');
+      return;
+    }
+    _dio.options.headers['Authorization'] = 'Bearer $token';
+  }
+
   Future<MultipartFile> _toMultipartFile(XFile imageFile) async {
     final bytes = await imageFile.readAsBytes();
     final fileName = p.basename(imageFile.path.isEmpty ? 'upload.jpg' : imageFile.path);
@@ -152,7 +160,7 @@ class ApiService {
     }
   }
 
-  Future<TireScanResult> analyzeTire(XFile imageFile, String mode) async {
+  Future<Map<String, dynamic>> analyzeTire(XFile imageFile, String mode) async {
     try {
       FormData formData = FormData.fromMap({
         "image": await _toMultipartFile(imageFile),
@@ -160,7 +168,121 @@ class ApiService {
       });
 
       final response = await _requestWithFallback(() => _dio.post('/api/analyze-tire', data: formData));
-      return TireScanResult.fromJson(response.data);
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> saveTireHealthReport({
+    required String numberPlate,
+    required Map<String, dynamic> plateDetection,
+    required Map<String, dynamic> frontAnalysis,
+    required List<Map<String, dynamic>> sideAnalyses,
+    List<Map<String, dynamic>> scanAssets = const [],
+  }) async {
+    try {
+      final response = await _requestWithFallback(
+        () => _dio.post('/api/reports/tire-health', data: {
+          'numberPlate': numberPlate,
+          'plateDetection': plateDetection,
+          'frontAnalysis': frontAnalysis,
+          'sideAnalyses': sideAnalyses,
+          'scanAssets': scanAssets,
+        }),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTireHealthReports({int limit = 20}) async {
+    try {
+      final response = await _requestWithFallback(
+        () => _dio.get('/api/reports/tire-health', queryParameters: {'limit': limit}),
+      );
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final reports = (data['reports'] as List?) ?? const [];
+      return reports.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchAdminUsers() async {
+    try {
+      final response = await _requestWithFallback(() => _dio.get('/api/admin/users'));
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final users = (data['users'] as List?) ?? const [];
+      return users.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> createAdminUser({
+    required String username,
+    required String email,
+    required String password,
+    required String numberPlate,
+    required String role,
+    String? vehicleModel,
+    String? phone,
+  }) async {
+    try {
+      final response = await _requestWithFallback(
+        () => _dio.post('/api/admin/users', data: {
+          'username': username,
+          'email': email,
+          'password': password,
+          'numberPlate': numberPlate,
+          'vehicleModel': vehicleModel,
+          'phone': phone,
+          'role': role,
+        }),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> updateAdminUser({
+    required String userId,
+    required String username,
+    required String email,
+    required String numberPlate,
+    required String role,
+    String? vehicleModel,
+    String? phone,
+    String? password,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'username': username,
+        'email': email,
+        'numberPlate': numberPlate,
+        'vehicleModel': vehicleModel,
+        'phone': phone,
+        'role': role,
+      };
+      if (password != null && password.trim().isNotEmpty) {
+        payload['password'] = password;
+      }
+
+      final response = await _requestWithFallback(
+        () => _dio.put('/api/admin/users/$userId', data: payload),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteAdminUser(String userId) async {
+    try {
+      await _requestWithFallback(() => _dio.delete('/api/admin/users/$userId'));
     } on DioException catch (e) {
       throw _handleError(e);
     }

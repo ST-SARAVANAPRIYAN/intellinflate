@@ -10,6 +10,10 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final viewModel = Provider.of<IntelliInflateViewModel>(context);
     final user = viewModel.currentUser;
+    final latestReport = viewModel.tireHealthReports.isNotEmpty ? viewModel.tireHealthReports.first : null;
+    final plateDone = viewModel.vehicleDetectionResult?.success == true;
+    final frontDone = viewModel.frontAnalysis != null;
+    final sideDone = viewModel.sideLeftAnalysis != null || viewModel.sideRightAnalysis != null;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -45,9 +49,24 @@ class DashboardScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
-          const Text("Recent Health Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text("Workflow Status", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          _buildSummaryCard(viewModel),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  _buildStepTile('Step 1: Plate Detection', plateDone),
+                  _buildStepTile('Step 2: Front Tire Analysis', frontDone),
+                  _buildStepTile('Step 3: Side Crack Analysis', sideDone),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text("Latest Tire Health Report", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _buildLatestReportCard(latestReport),
         ],
       ),
     );
@@ -98,33 +117,149 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSummaryCard(IntelliInflateViewModel viewModel) {
-    final scanCount = viewModel.tireScanResults.length;
+  Widget _buildStepTile(String title, bool done) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(done ? Icons.check_circle : Icons.timelapse, color: done ? Colors.greenAccent.shade400 : Colors.orangeAccent),
+      title: Text(title),
+      subtitle: Text(done ? 'Completed' : 'Pending'),
+    );
+  }
+
+  Widget _buildLatestReportCard(Map<String, dynamic>? report) {
+    if (report == null) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text("No reports saved yet. Complete the flow and save report from Health Scan."),
+        ),
+      );
+    }
+
+    final overall = report['overallScore'] ?? '--';
+    final summary = report['summary']?.toString() ?? 'No summary';
+    final generatedAt = report['generatedAt']?.toString() ?? '';
+    final assets = _reportAssets(report);
+    final scoreValue = _scoreValue(overall);
+
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: const Icon(Icons.analytics, color: Colors.orange),
-              title: const Text("Tire Scans Completed"),
-              trailing: Text("$scanCount / 4", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: assets.isNotEmpty && (assets.first['imageUrl']?.toString().isNotEmpty ?? false)
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Image.network(
+                            assets.first['imageUrl'].toString(),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined),
+                          ),
+                        )
+                      : const Icon(Icons.tire_repair, size: 34),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Score: $overall', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(summary),
+                      const SizedBox(height: 8),
+                      Text(generatedAt, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const Divider(),
-            if (scanCount == 0)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Text("No scan data available. Start a new scan to see health reports."),
-              )
-            else
-              ...viewModel.tireScanResults.entries.map((e) => ListTile(
-                dense: true,
-                title: Text(e.key.toString().split('.').last),
-                subtitle: Text("Score: ${e.value.overallCondition.overallScore}"),
-                trailing: Icon(Icons.check_circle, color: Colors.greenAccent.shade400),
-              )).toList(),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: scoreValue == null ? null : (scoreValue / 100).clamp(0, 1),
+                minHeight: 10,
+                backgroundColor: Colors.blueGrey.shade100,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildAssetPreviewRow(assets),
           ],
         ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _reportAssets(Map<String, dynamic> report) {
+    final assets = report['scanAssets'];
+    if (assets is! List) return const [];
+    return assets
+        .whereType<Map>()
+        .map((asset) => Map<String, dynamic>.from(asset))
+        .where((asset) => asset['imageUrl']?.toString().isNotEmpty ?? false)
+        .toList();
+  }
+
+  double? _scoreValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(value?.toString() ?? '');
+    return match == null ? null : double.tryParse(match.group(1)!);
+  }
+
+  Widget _buildAssetPreviewRow(List<Map<String, dynamic>> assets) {
+    if (assets.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: assets.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final asset = assets[index];
+          final label = asset['label']?.toString() ?? 'Scan';
+          final imageUrl = asset['imageUrl']?.toString() ?? '';
+
+          return SizedBox(
+            width: 140,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      imageUrl,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.blueGrey.shade50,
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.broken_image_outlined),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

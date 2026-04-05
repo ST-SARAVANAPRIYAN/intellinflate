@@ -7,6 +7,7 @@ import 'dashboard_screen.dart';
 import 'vehicle_detection_screen.dart';
 import 'tire_scan_screen.dart';
 import 'history_screen.dart';
+import 'admin_users_screen.dart';
 
 class IntelliInflateMainScreen extends StatelessWidget {
   const IntelliInflateMainScreen({super.key});
@@ -68,20 +69,49 @@ class IntelliInflateMainScreen extends StatelessWidget {
             ),
           ),
           bottomNavigationBar: NavigationBar(
-            selectedIndex: viewModel.selectedTab.index,
+            selectedIndex: _selectedIndexFor(viewModel),
             onDestinationSelected: (index) {
-              viewModel.selectTab(NavigationTab.values[index]);
+              final tabs = _tabsFor(viewModel);
+              viewModel.selectTab(tabs[index]);
             },
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-              NavigationDestination(icon: Icon(Icons.directions_car), label: 'Vehicle'),
-              NavigationDestination(icon: Icon(Icons.scanner), label: 'Health Scan'),
-              NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-            ],
+            destinations: _destinationsFor(viewModel),
           ),
         );
       },
     );
+  }
+
+  List<NavigationTab> _tabsFor(IntelliInflateViewModel viewModel) {
+    final tabs = <NavigationTab>[
+      NavigationTab.dashboard,
+      NavigationTab.vehicleDetection,
+      NavigationTab.tireScan,
+      NavigationTab.history,
+    ];
+    if (viewModel.isAdmin) {
+      tabs.add(NavigationTab.admin);
+    }
+    return tabs;
+  }
+
+  List<NavigationDestination> _destinationsFor(IntelliInflateViewModel viewModel) {
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+      const NavigationDestination(icon: Icon(Icons.directions_car), label: 'Vehicle'),
+      const NavigationDestination(icon: Icon(Icons.scanner), label: 'Health Scan'),
+      const NavigationDestination(icon: Icon(Icons.history), label: 'Reports'),
+    ];
+    if (viewModel.isAdmin) {
+      destinations.add(const NavigationDestination(icon: Icon(Icons.admin_panel_settings), label: 'Admin'));
+    }
+    return destinations;
+  }
+
+  int _selectedIndexFor(IntelliInflateViewModel viewModel) {
+    final tabs = _tabsFor(viewModel);
+    final index = tabs.indexOf(viewModel.selectedTab);
+    if (index >= 0) return index;
+    return 0;
   }
 
   Widget _buildBody(IntelliInflateViewModel viewModel) {
@@ -94,6 +124,8 @@ class IntelliInflateMainScreen extends StatelessWidget {
         return const TireScanScreen();
       case NavigationTab.history:
         return const HistoryScreen();
+      case NavigationTab.admin:
+        return const AdminUsersScreen();
     }
   }
 }

@@ -10,6 +10,7 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
       id: json['id'] as String,
       username: json['username'] as String,
       email: json['email'] as String,
+  role: json['role'] as String?,
       numberPlate: json['numberPlate'] as String,
       vehicleModel: json['vehicleModel'] as String?,
       phone: json['phone'] as String?,
@@ -19,6 +20,7 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'id': instance.id,
       'username': instance.username,
       'email': instance.email,
+      'role': instance.role,
       'numberPlate': instance.numberPlate,
       'vehicleModel': instance.vehicleModel,
       'phone': instance.phone,
@@ -223,6 +225,7 @@ VehicleDetectionResult _$VehicleDetectionResultFromJson(
       detectedPlate: json['detectedPlate'] as String?,
       confidence: (json['confidence'] as num?)?.toDouble(),
       user: json['user'] as Map<String, dynamic>?,
+      imageUrl: json['imageUrl'] as String?,
     );
 
 Map<String, dynamic> _$VehicleDetectionResultToJson(
@@ -234,4 +237,5 @@ Map<String, dynamic> _$VehicleDetectionResultToJson(
       'detectedPlate': instance.detectedPlate,
       'confidence': instance.confidence,
       'user': instance.user,
+      'imageUrl': instance.imageUrl,
     };

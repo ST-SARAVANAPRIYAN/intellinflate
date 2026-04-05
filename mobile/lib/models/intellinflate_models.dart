@@ -8,6 +8,7 @@ class User {
   final String id;
   final String username;
   final String email;
+  final String? role;
   final String numberPlate;
   final String? vehicleModel;
   final String? phone;
@@ -16,6 +17,7 @@ class User {
     required this.id,
     required this.username,
     required this.email,
+    this.role,
     required this.numberPlate,
     this.vehicleModel,
     this.phone,
@@ -239,6 +241,7 @@ class VehicleDetectionResult {
   final String? detectedPlate;
   final double? confidence;
   final Map<String, dynamic>? user;
+  final String? imageUrl;
 
   VehicleDetectionResult({
     this.stationId,
@@ -247,6 +250,7 @@ class VehicleDetectionResult {
     this.detectedPlate,
     this.confidence,
     this.user,
+    this.imageUrl,
   });
 
   factory VehicleDetectionResult.fromJson(Map<String, dynamic> json) => _$VehicleDetectionResultFromJson(json);
